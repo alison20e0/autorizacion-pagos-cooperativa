@@ -1,0 +1,38 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Java / Maven / Spring Boot
+target/
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Binaries / IDE
+*.exe
+*.dll
+*.so
+*.dylib
+bin/
+.idea/
+.vscode/
+*.iml

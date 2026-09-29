@@ -1,0 +1,29 @@
+{
+  "name": "autorizacion-pagos-cooperativa",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "api",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose",
+  "forwardPorts": [8081, 5432, 5672, 15672],
+  "portsAttributes": {
+    "8081": { "label": "api" },
+    "5432": { "label": "postgres" },
+    "5672": { "label": "rabbitmq-amqp" },
+    "15672": { "label": "rabbitmq-management" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "vmware.vscode-boot-dev-pack",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "java.configuration.updateBuildConfiguration": "automatic"
+      }
+    }
+  },
+  "remoteUser": "spring"
+}
