@@ -1,0 +1,10 @@
+target/
+.git/
+.gitignore
+.devcontainer/
+*.md
+.idea/
+*.iml
+node_modules/
+index.js
+package.json
