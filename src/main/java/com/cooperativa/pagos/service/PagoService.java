@@ -2,110 +2,183 @@ package com.cooperativa.pagos.service;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import com.cooperativa.pagos.amqp.PagoProcesadoPublisher;
+import com.cooperativa.pagos.banco.BancoRespuesta;
+import com.cooperativa.pagos.banco.ServicioBanco;
+import com.cooperativa.pagos.config.LimitesConfig;
 import com.cooperativa.pagos.domain.Auditoria;
+import com.cooperativa.pagos.domain.Cuenta;
+import com.cooperativa.pagos.domain.EstadoPago;
 import com.cooperativa.pagos.domain.Pago;
 import com.cooperativa.pagos.dto.PagoRequest;
 import com.cooperativa.pagos.dto.PagoResponse;
 import com.cooperativa.pagos.exception.IdempotencyKeyRequeridaException;
+import com.cooperativa.pagos.exception.LimiteExcedidoException;
+import com.cooperativa.pagos.exception.PagoNoEncontradoException;
 import com.cooperativa.pagos.repository.AuditoriaRepository;
+import com.cooperativa.pagos.repository.CuentaRepository;
 import com.cooperativa.pagos.repository.PagoRepository;
-import com.cooperativa.pagos.saldo.ServicioSaldo;
 
-/**
- * Autoriza pagos contra el saldo del socio garantizando que una misma
- * X-Idempotency-Key nunca produzca mas de un cargo.
- *
- * La proteccion se apoya en la restriccion de unicidad sobre
- * pago.idempotency_key, no solo en una lectura previa: dos peticiones
- * concurrentes con la misma clave compiten por el INSERT y solo una gana.
- * El descuento del saldo ocurre exclusivamente despues de ganar ese INSERT,
- * de modo que una peticion perdedora nunca descuenta.
- */
 @Service
 public class PagoService {
 
     private static final Logger log = LoggerFactory.getLogger(PagoService.class);
     private static final int MAX_LUNGITUD_CLAVE = 128;
+    private static final int TIMEOUT_BANCO_SEGUNDOS = 3;
 
     private final PagoRepository pagoRepository;
     private final AuditoriaRepository auditoriaRepository;
-    private final ServicioSaldo servicioSaldo;
+    private final CuentaRepository cuentaRepository;
+    private final ServicioBanco servicioBanco;
+    private final PagoProcesadoPublisher publisher;
+    private final LimitesConfig limitesConfig;
 
     public PagoService(PagoRepository pagoRepository,
                        AuditoriaRepository auditoriaRepository,
-                       ServicioSaldo servicioSaldo) {
+                       CuentaRepository cuentaRepository,
+                       ServicioBanco servicioBanco,
+                       PagoProcesadoPublisher publisher,
+                       LimitesConfig limitesConfig) {
         this.pagoRepository = pagoRepository;
         this.auditoriaRepository = auditoriaRepository;
-        this.servicioSaldo = servicioSaldo;
+        this.cuentaRepository = cuentaRepository;
+        this.servicioBanco = servicioBanco;
+        this.publisher = publisher;
+        this.limitesConfig = limitesConfig;
     }
 
+    @Transactional
     public PagoResponse autorizar(String idempotencyKey, PagoRequest request, MetadatosRequest metadatos) {
         String clave = normalizarClave(idempotencyKey);
-
         Optional<Pago> previo = pagoRepository.findByIdempotencyKey(clave);
         if (previo.isPresent()) {
+            auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.CONFLICTO_IDEMPOTENCIA, clave,
+                    previo.get().getId(), "Reutilizacion de clave", metadatos.usuario(), metadatos.direccionIp()));
             return replicar(previo.get(), clave, metadatos);
         }
-
-        auditoriaRepository.save(Auditoria.registrar(
-                Auditoria.Evento.SOLICITUD_RECIBIDA, clave, null,
-                "Pago solicitado por " + request.numeroSocio() + " por " + request.monto(),
-                metadatos.usuario(), metadatos.direccionIp()));
-
-        Pago pago;
+        auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.SOLICITUD_RECIBIDA, clave, null,
+                "Solicitud recibida", metadatos.usuario(), metadatos.direccionIp()));
         try {
-            pago = procesar(clave, request, metadatos);
-        } catch (DataIntegrityViolationException excepcion) {
+            return procesar(clave, request, metadatos);
+        } catch (DataIntegrityViolationException e) {
             Optional<Pago> ganador = pagoRepository.findByIdempotencyKey(clave);
             if (ganador.isEmpty()) {
-                throw excepcion;
+                auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.INTENTO_FALLIDO, clave, null,
+                        "Fallo", metadatos.usuario(), metadatos.direccionIp()));
+                throw e;
             }
-            log.info("Carrera resuelta por restriccion de unicidad para la clave {}", clave);
             return replicar(ganador.get(), clave, metadatos);
+        } catch (Exception e) {
+            auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.FALLO_GENERAL, clave, null,
+                    e.getMessage(), metadatos.usuario(), metadatos.direccionIp()));
+            throw e;
         }
+    }
 
+    private PagoResponse procesar(String clave, PagoRequest request, MetadatosRequest metadatos) {
+        Cuenta cuenta = cuentaRepository.findById(request.numeroSocio())
+                .orElseThrow(() -> new LimiteExcedidoException("Cuenta", "Cuenta no encontrada: " + request.numeroSocio()));
+        BigDecimal saldoAntes = cuenta.getSaldo();
+        if (saldoAntes.compareTo(request.monto()) < 0) {
+            Pago rechazado = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
+                    request.referencia(), "Saldo insuficiente: disponible " + saldoAntes, saldoAntes);
+            Pago persistido = guardarYAuditar(rechazado, Auditoria.Evento.PAGO_RECHAZADO,
+                    "Rechazado por saldo insuficiente", metadatos);
+            publisher.publicar(persistido);
+            return PagoResponse.desde(persistido, false);
+        }
+        BigDecimal limitePago = limitesConfig.getLimitePago();
+        if (limitePago != null && request.monto().compareTo(limitePago) > 0) {
+            Pago rechazado = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
+                    request.referencia(), "Límite por pago excedido", saldoAntes);
+            Pago persistido = guardarYAuditar(rechazado, Auditoria.Evento.PAGO_RECHAZADO,
+                    "Rechazado por límite por pago excedido", metadatos);
+            publisher.publicar(persistido);
+            return PagoResponse.desde(persistido, false);
+        }
+        BigDecimal gastoDiario = cuenta.getGastoDiario() != null ? cuenta.getGastoDiario() : BigDecimal.ZERO;
+        BigDecimal nuevoGastoDiario = gastoDiario.add(request.monto());
+        BigDecimal limiteDiario = limitesConfig.getLimiteDiario();
+        if (limiteDiario != null && nuevoGastoDiario.compareTo(limiteDiario) > 0) {
+            Pago rechazado = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
+                    request.referencia(), "Límite diario excedido", saldoAntes);
+            Pago persistido = guardarYAuditar(rechazado, Auditoria.Evento.PAGO_RECHAZADO,
+                    "Rechazado por límite diario excedido", metadatos);
+            publisher.publicar(persistido);
+            return PagoResponse.desde(persistido, false);
+        }
+        CompletableFuture<BancoRespuesta> futureBanco = servicioBanco.autorizarPago(
+                request.numeroSocio(), request.monto(), request.referencia());
+        try {
+            BancoRespuesta respuestaBanco = futureBanco.get(TIMEOUT_BANCO_SEGUNDOS, TimeUnit.SECONDS);
+            if (respuestaBanco.error() || !respuestaBanco.autorizado()) {
+                Pago rechazado = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
+                        request.referencia(), respuestaBanco.motivo() != null ? respuestaBanco.motivo() : "Rechazado por banco", saldoAntes);
+                Pago persistido = guardarYAuditar(rechazado, Auditoria.Evento.BANCO_FALLIDO,
+                        "Rechazo desde banco", metadatos);
+                publisher.publicar(persistido);
+                return PagoResponse.desde(persistido, false);
+            }
+            Pago autorizado = Pago.autorizar(clave, request.numeroSocio(), request.monto(),
+                    request.referencia(), saldoAntes, saldoAntes);
+            Pago persistido = pagoRepository.saveAndFlush(autorizado);
+            BigDecimal saldoDespues = saldoAntes.subtract(request.monto());
+            cuenta.debitar(request.monto());
+            cuentaRepository.save(cuenta);
+            persistido.registrarSaldoDespues(saldoDespues);
+            pagoRepository.save(persistido);
+            auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.PAGO_AUTORIZADO, clave,
+                    persistido.getId(), "Autorizado por " + request.monto(), metadatos.usuario(),
+                    metadatos.direccionIp()));
+            publisher.publicar(persistido);
+            return PagoResponse.desde(persistido, false);
+        } catch (TimeoutException te) {
+            Pago pendiente = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
+                    request.referencia(), "Timeout al esperar respuesta del banco (3s)", saldoAntes);
+            pendiente.establecerEstado(EstadoPago.PENDIENTE_BANCO);
+            Pago persistido = pagoRepository.saveAndFlush(pendiente);
+            auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.BANCO_TIMEOUT,
+                    persistido.getIdempotencyKey(), persistido.getId(),
+                    "Timeout esperando respuesta del banco tras 3s", metadatos.usuario(), metadatos.direccionIp()));
+            auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.PAGO_PENDIENTE_BANCO,
+                    persistido.getIdempotencyKey(), persistido.getId(),
+                    "Pago queda en PENDIENTE_BANCO por timeout del banco", metadatos.usuario(), metadatos.direccionIp()));
+            publisher.publicar(persistido);
+            return PagoResponse.desde(persistido, false);
+        } catch (Exception e) {
+            Pago rechazado = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
+                    request.referencia(), "Error al comunicarse con banco", saldoAntes);
+            Pago persistido = guardarYAuditar(rechazado, Auditoria.Evento.BANCO_FALLIDO,
+                    "Fallo comunicacion banco", metadatos);
+            publisher.publicar(persistido);
+            return PagoResponse.desde(persistido, false);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public PagoResponse obtenerPorId(String id) {
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(id);
+        } catch (Exception e) {
+            throw new PagoNoEncontradoException();
+        }
+        Pago pago = pagoRepository.findById(uuid).orElseThrow(PagoNoEncontradoException::new);
         return PagoResponse.desde(pago, false);
     }
 
-    private Pago procesar(String clave, PagoRequest request, MetadatosRequest metadatos) {
-        BigDecimal saldoAntes = servicioSaldo.consultarSaldo(request.numeroSocio());
-
-        if (saldoAntes.compareTo(request.monto()) < 0) {
-            Pago rechazado = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
-                    request.referencia(),
-                    "Saldo insuficiente: disponible " + saldoAntes, saldoAntes);
-            Pago persistido = guardarYAuditar(rechazado, Auditoria.Evento.PAGO_RECHAZADO,
-                    "Rechazado por saldo insuficiente", metadatos);
-            return persistido;
-        }
-
-        Pago autorizado = Pago.autorizar(clave, request.numeroSocio(), request.monto(),
-                request.referencia(), saldoAntes, saldoAntes);
-
-        // El INSERT reserva la clave de idempotencia; solo quien lo gana descuenta.
-        Pago persistido = pagoRepository.saveAndFlush(autorizado);
-
-        BigDecimal saldoDespues = saldoAntes.subtract(request.monto());
-        servicioSaldo.descontar(request.numeroSocio(), request.monto());
-
-        persistido.registrarSaldoDespues(saldoDespues);
-        pagoRepository.save(persistido);
-
-        auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.PAGO_AUTORIZADO, clave,
-                persistido.getId(), "Autorizado por " + request.monto(), metadatos.usuario(),
-                metadatos.direccionIp()));
-
-        return persistido;
-    }
-
-    private Pago guardarYAuditar(Pago pago, Auditoria.Evento evento, String detalle,
-                                 MetadatosRequest metadatos) {
+    private Pago guardarYAuditar(Pago pago, Auditoria.Evento evento, String detalle, MetadatosRequest metadatos) {
         Pago persistido = pagoRepository.saveAndFlush(pago);
         auditoriaRepository.save(Auditoria.registrar(evento, persistido.getIdempotencyKey(),
                 persistido.getId(), detalle, metadatos.usuario(), metadatos.direccionIp()));
@@ -113,10 +186,7 @@ public class PagoService {
     }
 
     private PagoResponse replicar(Pago previo, String clave, MetadatosRequest metadatos) {
-        log.info("Pago {} ya procesado; se devuelve el resultado almacenado", previo.getId());
-        auditoriaRepository.save(Auditoria.registrar(Auditoria.Evento.CONFLICTO_IDEMPOTENCIA, clave,
-                previo.getId(), "Reutilizacion de clave; respuesta replicada sin nuevo cargo",
-                metadatos.usuario(), metadatos.direccionIp()));
+        log.info("Pago ya procesado");
         return PagoResponse.desde(previo, true);
     }
 

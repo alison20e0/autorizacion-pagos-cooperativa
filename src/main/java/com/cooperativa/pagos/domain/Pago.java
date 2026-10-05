@@ -88,49 +88,16 @@ public class Pago {
 
     public void registrarSaldoDespues(BigDecimal saldoDespues) {
         this.saldoDespues = saldoDespues;
+    }(BigDecimal saldoDespues) {
+        this.saldoDespues = saldoDespues;
     }
-
-    public boolean esAutorizado() {
-        return this.estado == EstadoPago.AUTORIZADO;
+    public void cambiarEstado(EstadoPago estado) {
+        this.estado = estado;
     }
-
-    public UUID getId() {
-        return id;
+    public void establecerMotivoRechazo(String motivoRechazo) {
+        this.motivoRechazo = motivoRechazo;
     }
-
-    public String getIdempotencyKey() {
-        return idempotencyKey;
-    }
-
-    public String getNumeroSocio() {
-        return numeroSocio;
-    }
-
-    public BigDecimal getMonto() {
-        return monto;
-    }
-
-    public String getReferencia() {
-        return referencia;
-    }
-
-    public EstadoPago getEstado() {
-        return estado;
-    }
-
-    public String getMotivoRechazo() {
-        return motivoRechazo;
-    }
-
-    public BigDecimal getSaldoAntes() {
-        return saldoAntes;
-    }
-
-    public BigDecimal getSaldoDespues() {
-        return saldoDespues;
-    }
-
-    public Instant getFechaProceso() {
-        return fechaProceso;
+    public void establecerEstado(EstadoPago estado) {
+        this.estado = estado;
     }
 }

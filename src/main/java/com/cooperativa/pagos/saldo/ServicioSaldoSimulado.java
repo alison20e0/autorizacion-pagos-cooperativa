@@ -14,7 +14,7 @@ import com.cooperativa.pagos.exception.SaldoInsuficienteException;
  * Simulacion del saldo en cuenta del socio con deduccion atomica del monto.
  * Los saldos viven en memoria: al reiniciar el proceso vuelven a su valor inicial.
  */
-@Service
+@Service("servicioSaldoSimulado")
 public class ServicioSaldoSimulado implements ServicioSaldo {
 
     private static final Logger log = LoggerFactory.getLogger(ServicioSaldoSimulado.class);

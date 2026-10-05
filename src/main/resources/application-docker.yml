@@ -1,12 +1,12 @@
+server:
+  port: ${SERVER_PORT:8081}
+
 spring:
   datasource:
-    hikari:
-      maximum-pool-size: 10
-      connection-timeout: 30000
-  jpa:
-    hibernate:
-      ddl-auto: update
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:pagos_db}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:admin}
+    password: ${RABBITMQ_PASSWORD:secretpassword123}
 
-logging:
-  level:
-    com.cooperativa.pagos: DEBUG

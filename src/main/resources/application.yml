@@ -20,7 +20,44 @@ spring:
         format_sql: true
   jackson:
     default-property-inclusion: non_null
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:admin}
+    password: ${RABBITMQ_PASSWORD:secretpassword123}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
 
 logging:
   level:
     com.cooperativa.pagos: INFO
+
+pagos:
+  limites:
+    limite-pago: ${LIMITE_PAGO:1000.00}
+    limite-diario: ${LIMITE_DIARIO:5000.00}
+
+banco:
+  simular:
+    demora-ms: ${BANCO_SIMULAR_DEMORA_MS:0}
+    fallo: ${BANCO_SIMULAR_FALLO:false}
+
+app:
+  rabbitmq:
+    exchange: pago.events
+    queue: pago.procesado
+    routing-key: pago.procesado
+

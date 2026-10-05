@@ -47,6 +47,24 @@ public class GlobalExceptionHandler {
         return construir(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
     }
 
+    @ExceptionHandler(LimiteExcedidoException.class)
+    public ResponseEntity<ApiError> limiteExcedido(LimiteExcedidoException ex,
+                                                    HttpServletRequest request) {
+        return construir(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(PagoNoEncontradoException.class)
+    public ResponseEntity<ApiError> pagoNoEncontrado(PagoNoEncontradoException ex,
+                                                     HttpServletRequest request) {
+        return construir(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(ServicioBancoNoDisponibleException.class)
+    public ResponseEntity<ApiError> bancoNoDisponible(ServicioBancoNoDisponibleException ex,
+                                                       HttpServletRequest request) {
+        return construir(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> errorInesperado(Exception ex, HttpServletRequest request) {
         log.error("Error no controlado procesando {}", request.getRequestURI(), ex);

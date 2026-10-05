@@ -17,18 +17,30 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-secretpassword123}
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-secretpassword123}
+      BANCO_SIMULAR_DEMORA_MS: ${BANCO_SIMULAR_DEMORA_MS:-0}
+      BANCO_SIMULAR_FALLO: ${BANCO_SIMULAR_FALLO:-false}
+      LIMITE_PAGO: ${LIMITE_PAGO:-1000.00}
+      LIMITE_DIARIO: ${LIMITE_DIARIO:-5000.00}
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
   postgres:
     image: postgres:15-alpine
     container_name: pagos-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5442:5432"
     environment:
       POSTGRES_DB: pagos_db
       POSTGRES_USER: ${DB_USER:-admin}
@@ -62,3 +74,4 @@ services:
 volumes:
   postgres_data:
   rabbitmq_data:
+

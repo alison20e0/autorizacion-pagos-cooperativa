@@ -2,5 +2,7 @@ package com.cooperativa.pagos.domain;
 
 public enum EstadoPago {
     AUTORIZADO,
-    RECHAZADO
+    RECHAZADO,
+    PENDIENTE_BANCO,
+    CONCILIADO
 }

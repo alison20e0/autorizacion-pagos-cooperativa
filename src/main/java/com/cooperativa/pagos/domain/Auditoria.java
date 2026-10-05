@@ -20,7 +20,16 @@ public class Auditoria {
         SOLICITUD_RECIBIDA,
         PAGO_AUTORIZADO,
         PAGO_RECHAZADO,
-        CONFLICTO_IDEMPOTENCIA
+        CONFLICTO_IDEMPOTENCIA,
+        BANCO_FALLIDO,
+        BANCO_TIMEOUT,
+        INTENTO_FALLIDO,
+        CONCILIACION_INICIADA,
+        CONCILIACION_FINALIZADA,
+        PAGO_PENDIENTE_BANCO,
+        RESPUESTA_BANCO_ERROR,
+        REPETICION_IDEMPOTENCIA,
+        FALLO_GENERAL
     }
 
     @Id
@@ -103,3 +112,4 @@ public class Auditoria {
         return fecha;
     }
 }
+

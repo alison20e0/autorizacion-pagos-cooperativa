@@ -4,6 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -46,6 +48,8 @@ public class PagoController {
         HttpStatus status = switch (respuesta.estado()) {
             case AUTORIZADO -> respuesta.replicado() ? HttpStatus.OK : HttpStatus.CREATED;
             case RECHAZADO -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case PENDIENTE_BANCO -> HttpStatus.ACCEPTED;
+            case CONCILIADO -> HttpStatus.OK;
         };
 
         log.info("POST /api/v1/pagos clave={} socio={} estado={} replicado={}",
@@ -56,8 +60,15 @@ public class PagoController {
                 .body(respuesta);
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<PagoResponse> obtenerPago(@PathVariable String id, HttpServletRequest servletRequest) {
+        PagoResponse respuesta = pagoService.obtenerPorId(id);
+        return ResponseEntity.ok(respuesta);
+    }
+
     private String resolverUsuario(HttpServletRequest request) {
         String usuario = request.getHeader("X-Usuario");
         return usuario != null && !usuario.isBlank() ? usuario : "desconocido";
     }
 }
+
