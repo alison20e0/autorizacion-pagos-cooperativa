@@ -1,0 +1,28 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Autorización de Pagos</title><style>*{box-sizing:border-box}body{font:15px/1.45 'Segoe UI',system-ui,sans-serif;margin:0;background:#f3f5f9;color:#1d2433}
+header{background:#1F3864;color:#fff;padding:20px 24px}h1{margin:0;font-size:22px}header p{margin:4px 0 0;opacity:.8;font-size:13px}
+main{max-width:980px;margin:18px auto;padding:0 14px}h2{font-size:16px;margin:0 0 10px}
+.k{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.c{background:#fff;border-radius:8px;padding:14px;border:1px solid #dde2ec;margin-bottom:14px;overflow-x:auto}.k .c{margin:0}
+.k b{display:block;font-size:26px;color:#1F3864}.k span{font-size:12px;color:#667}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #eef0f5;font-size:14px;vertical-align:top}th{color:#556}
+button,select,input{font:inherit;padding:7px 12px;border-radius:6px;border:1px solid #b9c0cf;background:#fff}
+button{cursor:pointer;background:#1F3864;color:#fff;border:0;margin:2px 4px 2px 0}button.g{background:#2e7d32}button.x{background:#e6e9f0;color:#333}button:disabled{opacity:.4;cursor:default}
+.t{padding:2px 9px;border-radius:10px;font-size:12px;background:#e3eefc;white-space:nowrap}.ok{background:#e4f4e6;color:#2e7d32}.no{background:#fde8e8;color:#c62828}.wa{background:#fff1de;color:#b85c00}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.row label{display:flex;flex-direction:column;font-size:12px;color:#556;gap:3px}
+.log{font:12px/1.6 Consolas,monospace;color:#445;max-height:170px;overflow:auto}footer{text-align:center;font-size:12px;color:#778;padding:16px}</style></head><body>
+<header><h1>Autorización de Pagos</h1><p>Cooperativa: validación de cuenta, límites e idempotencia</p></header><main><div class="c"><h2>Solicitar pago</h2><div class="row"><label>Cuenta<select id="c"><option>S-1001</option><option>S-1002</option><option>S-1003</option></select></label><label>Monto<input id="m" type="number" value="100" min="1"></label><label>X-Idempotency-Key<input id="k" value="key-1"></label><label>Banco<select id="b"><option value="ok">Responde normal</option><option value="slow">Lento (más de 3 s)</option><option value="no">Rechaza</option></select></label></div>
+<p><button onclick="pay()">Autorizar pago</button><button class="x" onclick="conc()">Conciliar pendientes</button></p><div id="r">Límites: 300 por pago y 600 por día. Repite la misma clave para ver la idempotencia.</div></div>
+<div class="c"><h2>Saldos</h2><div id="s"></div></div>
+<div class="c"><h2>Auditoría de intentos</h2><div class="log" id="lg">Sin intentos todavía.</div></div></main>
+<footer>Prototipo con datos simulados (sin servidor). La implementación con Docker está en el repositorio <b>autorizacion-pagos-cooperativa</b>.</footer>
+<script>const $=id=>document.getElementById(id),hm=()=>new Date().toLocaleTimeString('es-EC');const S={'S-1001':500,'S-1002':50,'S-1003':1000},U={},D={},P=[],L=[];
+const cl=e=>e=='AUTORIZADO'||e=='CONCILIADO'?'ok':e=='PENDIENTE_BANCO'?'wa':'no';
+function show(x,n){$('r').innerHTML='<span class="t '+cl(x.e)+'">'+x.e+'</span> '+x.msg+(n?'<br><b>Clave repetida: se devuelve el resultado anterior, sin cobrar de nuevo.</b>':'');}
+function pay(){const k=$('k').value.trim(),c=$('c').value,m=+$('m').value,b=$('b').value;if(!k||!(m>0)){alert('Indica clave y monto válidos.');return}
+if(D[k]){L.unshift(hm()+' REINTENTO clave='+k+' → '+D[k].e);show(D[k],1);return draw()}
+let e,msg;if(m>300){e='RECHAZADO';msg='Límite por pago excedido (300).'}else if((U[c]||0)+m>600){e='RECHAZADO';msg='Límite diario excedido (600).'}else if(m>S[c]){e='RECHAZADO';msg='Saldo insuficiente.'}
+else if(b=='slow'){e='PENDIENTE_BANCO';msg='El banco no respondió en 3 s (HTTP 202 «en proceso»).'}else if(b=='no'){e='RECHAZADO';msg='Rechazado por el banco.'}
+else{e='AUTORIZADO';S[c]-=m;U[c]=(U[c]||0)+m;msg='Pago autorizado.'}
+D[k]={e,msg,c,m};if(e=='PENDIENTE_BANCO')P.push(k);L.unshift(hm()+' INTENTO clave='+k+' cuenta='+c+' monto='+m+' → '+e+' · evento PagoProcesado publicado');show(D[k]);draw()}
+function conc(){if(!P.length){alert('No hay pagos pendientes.');return}P.splice(0).forEach(k=>{const d=D[k];S[d.c]-=d.m;U[d.c]=(U[d.c]||0)+d.m;d.e='CONCILIADO';L.unshift(hm()+' CONCILIACIÓN clave='+k+' → CONCILIADO')});draw()}
+function draw(){$('s').innerHTML=Object.keys(S).map(c=>c+': <b>'+S[c]+'</b>').join(' &nbsp;·&nbsp; ');if(L.length)$('lg').innerHTML=L.join('<br>')}draw();</script></body></html>
