@@ -101,9 +101,9 @@ public class PagoService {
         BigDecimal limitePago = limitesConfig.getLimitePago();
         if (limitePago != null && request.monto().compareTo(limitePago) > 0) {
             Pago rechazado = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
-                    request.referencia(), "Límite por pago excedido", saldoAntes);
+                    request.referencia(), "Limite por pago excedido", saldoAntes);
             Pago persistido = guardarYAuditar(rechazado, Auditoria.Evento.PAGO_RECHAZADO,
-                    "Rechazado por límite por pago excedido", metadatos);
+                    "Rechazado por Limite por pago excedido", metadatos);
             publisher.publicar(persistido);
             return PagoResponse.desde(persistido, false);
         }
@@ -112,9 +112,9 @@ public class PagoService {
         BigDecimal limiteDiario = limitesConfig.getLimiteDiario();
         if (limiteDiario != null && nuevoGastoDiario.compareTo(limiteDiario) > 0) {
             Pago rechazado = Pago.rechazar(clave, request.numeroSocio(), request.monto(),
-                    request.referencia(), "Límite diario excedido", saldoAntes);
+                    request.referencia(), "Limite diario excedido", saldoAntes);
             Pago persistido = guardarYAuditar(rechazado, Auditoria.Evento.PAGO_RECHAZADO,
-                    "Rechazado por límite diario excedido", metadatos);
+                    "Rechazado por Limite diario excedido", metadatos);
             publisher.publicar(persistido);
             return PagoResponse.desde(persistido, false);
         }

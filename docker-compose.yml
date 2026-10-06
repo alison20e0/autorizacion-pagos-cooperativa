@@ -29,11 +29,11 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 40s
+      retries: 12
+      start_period: 60s
 
   postgres:
     image: postgres:15-alpine
@@ -50,8 +50,8 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d pagos_db"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 12
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -66,12 +66,12 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "bash", "-c", "until (exec 3<>/dev/tcp/127.0.0.1/5672) 2>/dev/null; do sleep 2; done"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 12
+      start_period: 60s
 
 volumes:
   postgres_data:
   rabbitmq_data:
-
